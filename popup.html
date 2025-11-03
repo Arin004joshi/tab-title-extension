@@ -2,34 +2,228 @@
 <html>
 
 <head>
-    <title>Show Tab Title</title>
+    <title>TabPeek</title>
+    <meta charset="utf-8" />
     <style>
+        :root {
+            --bg-light: linear-gradient(135deg, #89f7fe, #66a6ff);
+            --bg-dark: linear-gradient(135deg, #2c3e50, #4ca1af);
+            --text-light: #333;
+            --text-dark: #f1f1f1;
+            --card-bg-light: rgba(255, 255, 255, 0.2);
+            --card-bg-dark: rgba(0, 0, 0, 0.3);
+        }
+
+        html,
         body {
-            font-family: Arial, sans-serif;
-            width: 250px;
-            padding: 10px;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "Poppins", sans-serif;
+            width: 300px;
+            padding: 18px;
+            margin: 0;
+            border-radius: 12px;
+            background: var(--bg-light);
+            color: var(--text-light);
+            text-align: center;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        body.dark {
+            background: var(--bg-dark);
+            color: var(--text-dark);
+        }
+
+        h2 {
+            font-size: 1.25rem;
+            margin-bottom: 10px;
+        }
+
+        #info-card {
+            display: none;
+            background: var(--card-bg-light);
+            border-radius: 10px;
+            padding: 12px;
+            margin-top: 12px;
+            box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.15);
+        }
+
+        body.dark #info-card {
+            background: var(--card-bg-dark);
+        }
+
+        #tab-title {
+            font-weight: 600;
+            font-size: 1rem;
+            margin-bottom: 8px;
+            word-wrap: break-word;
+        }
+
+        #tab-url {
+            font-size: 0.8rem;
+            opacity: 0.9;
+            display: block;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            overflow: hidden;
+            color: inherit;
+        }
+
+        .btn-container {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
         }
 
         button {
-            background-color: #4CAF50;
-            color: white;
+            background: #fff;
+            color: #222;
             border: none;
             padding: 8px 12px;
-            border-radius: 6px;
+            border-radius: 8px;
+            font-weight: 600;
             cursor: pointer;
+            box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
+            transition: transform 0.18s ease, opacity 0.18s ease;
         }
 
-        #title {
-            margin-top: 10px;
-            font-weight: bold;
-            color: #333;
+        body.dark button {
+            background: #f1f1f1;
+            color: #222;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .theme-toggle {
+            margin-top: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-size: 0.85rem;
+        }
+
+        #favorites {
+            margin-top: 16px;
+            text-align: left;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+            padding: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        body.dark #favorites {
+            background: rgba(0, 0, 0, 0.25);
+        }
+
+        .fav-item {
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .fav-item:last-child {
+            border-bottom: none;
+        }
+
+        .fav-link {
+            color: inherit;
+            text-decoration: none;
+            font-size: 0.85rem;
+        }
+
+        .fav-link:hover {
+            text-decoration: underline;
+        }
+
+        /* Toast styling with fade-up animation */
+        #toast {
+            position: absolute;
+            bottom: 60px;
+            /* keeps it above footer */
+            left: 50%;
+            transform: translateX(-50%) translateY(10px);
+            background: rgba(0, 0, 0, 0.85);
+            color: #fff;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            visibility: hidden;
+            opacity: 0;
+            z-index: 100;
+            transition:
+                opacity 0.35s ease,
+                transform 0.35s ease,
+                visibility 0s linear 0.35s;
+        }
+
+        #toast.show {
+            visibility: visible;
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+            transition-delay: 0s;
+        }
+
+        footer {
+            font-size: 0.75rem;
+            margin-top: 14px;
+            opacity: 0.8;
+            text-align: center;
+        }
+
+        /* small pinned badge shown next to the title */
+        #pinned-badge {
+            display: inline-block;
+            margin-left: 6px;
+            font-size: 0.85rem;
+            opacity: 0.9;
         }
     </style>
 </head>
 
 <body>
-    <button id="getTitleBtn">Show Tab Title</button>
-    <p id="title"></p>
+    <h2>🎯 TabPeek</h2>
+
+    <div class="btn-container">
+        <button id="showBtn">🔎 Show Info</button>
+        <button id="copyBtn" disabled>📋 Copy Title</button>
+        <button id="saveBtn" disabled>⭐ Save Tab</button>
+        <button id="pinBtn" disabled>📌 Pin Tab</button>
+    </div>
+
+    <div id="info-card" aria-live="polite">
+        <div id="tab-title">— <span id="pinned-badge" style="display:none">📌 Pinned</span></div>
+        <a id="tab-url" href="#" target="_blank" rel="noopener noreferrer"></a>
+    </div>
+
+    <div id="favorites">
+        <strong>⭐ Favorites:</strong>
+        <div id="fav-list"></div>
+        <button id="clearFavs" style="margin-top:6px;">🗑 Clear All</button>
+    </div>
+
+    <div class="theme-toggle">
+        <label for="themeSwitch">🌞 / 🌜</label>
+        <input type="checkbox" id="themeSwitch" />
+    </div>
+
+    <div id="toast">Copied!</div>
+    <footer>Made with ❤️ by Arin</footer>
 
     <script src="background.js"></script>
 </body>

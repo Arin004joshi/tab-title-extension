@@ -1,10 +1,11 @@
 {
     "manifest_version": 3,
-    "name": "Show Tab Title",
-    "version": "1.0",
-    "description": "Displays the current tab title in the popup",
+    "name": "TabPeek - Show Tab Info",
+    "version": "1.1",
+    "description": "Displays and copies current tab title & URL with theme toggle",
     "permissions": [
-        "tabs"
+        "tabs",
+        "storage"
     ],
     "action": {
         "default_popup": "popup.html",
