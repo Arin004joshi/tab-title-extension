@@ -1,187 +1,167 @@
-// Elements
-const showBtn = document.getElementById("showBtn");
-const copyBtn = document.getElementById("copyBtn");
-const saveBtn = document.getElementById("saveBtn");
-const pinBtn = document.getElementById("pinBtn");
-const clearFavsBtn = document.getElementById("clearFavs");
-const infoCard = document.getElementById("info-card");
-const titleEl = document.getElementById("tab-title");
-const pinnedBadge = document.getElementById("pinned-badge");
-const urlEl = document.getElementById("tab-url");
-const toast = document.getElementById("toast");
-const themeSwitch = document.getElementById("themeSwitch");
-const favList = document.getElementById("fav-list");
+const processBtn = document.getElementById('processBtn');
+const profilesInput = document.getElementById('profilesInput');
+const status = document.getElementById('status');
 
-let currentTab = null;
+// Backend endpoint - change if needed
+const API_ENDPOINT = 'http://localhost:4000/profiles';
 
-/** Helper: show toast */
-function showToast(message) {
-    toast.textContent = message;
-    toast.classList.add("show");
-    setTimeout(() => toast.classList.remove("show"), 1500);
-}
-
-/** Render favorites list */
-function renderFavorites(favs) {
-    favList.innerHTML = "";
-    if (!favs || favs.length === 0) {
-        favList.innerHTML = "<p style='font-size:0.8rem;opacity:0.7;'>No favorites yet.</p>";
+processBtn.addEventListener('click', async () => {
+    const raw = profilesInput.value.split('\n').map(s => s.trim()).filter(Boolean);
+    if (raw.length < 3) {
+        status.textContent = 'Please provide at least 3 profile URLs.';
         return;
     }
 
-    favs.forEach((f, idx) => {
-        const div = document.createElement("div");
-        div.className = "fav-item";
-        // clickable link + small remove button
-        div.innerHTML = `
-      <a href="${f.url}" target="_blank" class="fav-link">🔗 ${escapeHtml(f.title)}</a>
-      <button data-idx="${idx}" class="remove-fav" style="float:right;border:none;background:transparent;cursor:pointer;font-size:0.9rem;">🗑</button>
-    `;
-        favList.appendChild(div);
-    });
+    status.textContent = `Starting processing ${raw.length} profiles...`;
 
-    // attach remove handlers
-    const removeBtns = favList.querySelectorAll(".remove-fav");
-    removeBtns.forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-            const idx = Number(btn.getAttribute("data-idx"));
-            chrome.storage.sync.get({ favorites: [] }, (data) => {
-                const arr = data.favorites || [];
-                arr.splice(idx, 1);
-                chrome.storage.sync.set({ favorites: arr }, () => {
-                    renderFavorites(arr);
-                    showToast("Removed!");
+    for (let i = 0; i < raw.length; i++) {
+        const url = raw[i];
+        status.textContent = `Opening ${i + 1}/${raw.length}: ${url}`;
+
+        // open tab (background)
+        const tab = await chrome.tabs.create({ url: url, active: false });
+
+        // wait until tab finishes loading
+        await waitForTabComplete(tab.id);
+
+        status.textContent = `Extracting from ${url}...`;
+
+        // execute extraction function in page context
+        try {
+            const [result] = await chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                func: extractLinkedInProfile
+            });
+
+            // result.value is the object returned from extractLinkedInProfile in page context
+            const profile = result?.result || result?.value || null;
+
+            if (profile) {
+                // send to backend
+                await fetch(API_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(profile)
                 });
-            });
-        });
-    });
-}
-
-/** Escape HTML to avoid injection when reusing title as innerHTML */
-function escapeHtml(str) {
-    if (!str) return "";
-    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-/** Load and show the active tab info (triggered by Show Info) */
-async function loadTabInfoAndShow() {
-    try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tab) throw new Error("No active tab");
-
-        currentTab = tab;
-
-        // Update UI
-        titleEl.childNodes[0].nodeValue = tab.title || "(no title)"; // keep pinnedBadge element
-        urlEl.textContent = tab.url || "(no url)";
-        urlEl.href = tab.url || "#";
-
-        // pinned badge + pin button label
-        pinnedBadge.style.display = tab.pinned ? "inline-block" : "none";
-        pinBtn.textContent = tab.pinned ? "📌 Unpin Tab" : "📌 Pin Tab";
-
-        // reveal card
-        infoCard.style.display = "block";
-        infoCard.style.opacity = 0;
-        infoCard.style.transform = "translateY(6px)";
-        requestAnimationFrame(() => {
-            infoCard.style.transition = "opacity 180ms ease, transform 180ms ease";
-            infoCard.style.opacity = 1;
-            infoCard.style.transform = "translateY(0)";
-        });
-
-        // enable controls
-        copyBtn.disabled = false;
-        saveBtn.disabled = false;
-        pinBtn.disabled = false;
-    } catch (err) {
-        console.error("Error loading tab:", err);
-        titleEl.textContent = "Unable to fetch tab";
-        urlEl.textContent = "";
-        infoCard.style.display = "block";
-        copyBtn.disabled = true;
-        saveBtn.disabled = true;
-        pinBtn.disabled = true;
-        showToast("Could not load tab");
-    }
-}
-
-/** Copy title to clipboard */
-copyBtn.addEventListener("click", async () => {
-    if (!currentTab) return;
-    try {
-        await navigator.clipboard.writeText(currentTab.title || "");
-        showToast("Copied!");
-    } catch (err) {
-        console.error("Copy failed:", err);
-        showToast("Copy failed");
-    }
-});
-
-/** Save tab to favorites */
-saveBtn.addEventListener("click", () => {
-    if (!currentTab) return;
-    const fav = { title: currentTab.title || "(no title)", url: currentTab.url || "" };
-
-    chrome.storage.sync.get({ favorites: [] }, (data) => {
-        const existing = data.favorites || [];
-        if (!existing.some((t) => t.url === fav.url)) {
-            existing.push(fav);
-            chrome.storage.sync.set({ favorites: existing }, () => {
-                renderFavorites(existing);
-                showToast("Saved!");
-            });
-        } else {
-            showToast("Already saved!");
+                status.textContent = `Posted profile ${i + 1}/${raw.length}`;
+            } else {
+                status.textContent = `Extraction returned empty for ${url}`;
+            }
+        } catch (err) {
+            console.error('Script exec or post failed', err);
+            status.textContent = `Error extracting or posting for ${url}: ${err.message}`;
         }
-    });
-});
 
-/** Clear all favorites */
-clearFavsBtn.addEventListener("click", () => {
-    chrome.storage.sync.set({ favorites: [] }, () => {
-        renderFavorites([]);
-        showToast("Cleared!");
-    });
-});
+        // Close the tab to keep things tidy (optional)
+        await chrome.tabs.remove(tab.id);
 
-/** Pin / Unpin the current tab */
-pinBtn.addEventListener("click", async () => {
-    if (!currentTab) return;
-    try {
-        const newPinnedState = !currentTab.pinned;
-        // Update the tab pinned state
-        await chrome.tabs.update(currentTab.id, { pinned: newPinnedState });
-        // Reflect new state locally
-        currentTab.pinned = newPinnedState;
-        pinnedBadge.style.display = newPinnedState ? "inline-block" : "none";
-        pinBtn.textContent = newPinnedState ? "📌 Unpin Tab" : "📌 Pin Tab";
-        showToast(newPinnedState ? "Pinned!" : "Unpinned!");
-    } catch (err) {
-        console.error("Pin/unpin failed:", err);
-        showToast("Action failed");
+        // small delay between profiles to avoid throttling and emulate human behavior
+        await delay(800);
     }
+
+    status.textContent = 'All done!';
 });
 
-/** Theme handling */
-themeSwitch.addEventListener("change", () => {
-    const isDark = themeSwitch.checked;
-    document.body.classList.toggle("dark", isDark);
-    chrome.storage.sync.set({ theme: isDark ? "dark" : "light" });
-});
+// Utility: wait until tab update status is complete
+function waitForTabComplete(tabId) {
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            chrome.tabs.onUpdated.removeListener(listener);
+            resolve(); // give up after timeout and proceed (to avoid hanging)
+        }, 20000); // 20s timeout
+        function listener(updatedTabId, changeInfo) {
+            if (updatedTabId === tabId && changeInfo.status === 'complete') {
+                clearTimeout(timeout);
+                chrome.tabs.onUpdated.removeListener(listener);
+                // small wait to let JS render dynamic content
+                setTimeout(resolve, 800);
+            }
+        }
+        chrome.tabs.onUpdated.addListener(listener);
+    });
+}
 
-/** Apply stored theme & favorites on load */
-chrome.storage.sync.get(["theme", "favorites"], (data) => {
-    const isDark = data.theme === "dark";
-    document.body.classList.toggle("dark", isDark);
-    themeSwitch.checked = isDark;
-    renderFavorites(data.favorites || []);
-});
+// small delay helper
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-/** Show Info button handler */
-showBtn.addEventListener("click", loadTabInfoAndShow);
+/**
+ * This function runs inside the LinkedIn profile page (in page context).
+ * It tries multiple selector fallbacks to extract name, location, headline (about),
+ * bio/summary, followerCount, connectionCount, and a short bioLine.
+ *
+ * Return value will be serialized and passed back to popup.js.
+ */
+function extractLinkedInProfile() {
+    // helper to try multiple selectors
+    function pickText(selectors) {
+        for (const s of selectors) {
+            const el = document.querySelector(s);
+            if (el && el.innerText && el.innerText.trim()) return el.innerText.trim();
+        }
+        return '';
+    }
 
-/** keyboard accessibility: Enter triggers show */
-showBtn.addEventListener("keyup", (e) => {
-    if (e.key === "Enter") loadTabInfoAndShow();
-});
+    try {
+        const name = pickText([
+            '.pv-text-details__left-panel h1',
+            'h1.text-heading-xlarge',
+            'h1'
+        ]);
+
+        const location = pickText([
+            '.pv-text-details__left-panel .text-body-small',
+            '.pv-top-card--list-bullet li',
+            '.text-body-small.inline.t-black--light'
+        ]);
+
+        const about = pickText([
+            '.pv-text-details__left-panel .text-body-medium',
+            '.pv-top-card--experience-list .t-14',
+            '.text-body-medium'
+        ]);
+
+        // bio / summary
+        const bio = pickText([
+            '.pv-about__summary-text .lt-line-clamp__raw-line',
+            '.pv-about-section .pv-about__summary-text',
+            '#about .pv-shared-text-with-see-more'
+        ]);
+
+        // follower count (various linkedin layouts)
+        const follower = pickText([
+            '.pv-top-card-v2-section__followers-count',
+            '.pv-top-card-v2-section__connections',
+            '.feed-following-info__count'
+        ]);
+
+        // connection count (e.g., "500+ connections")
+        const connections = pickText([
+            '.pv-top-card-v2-section__connections',
+            '.pv-top-card--list-bullet li span',
+            '.pv-top-card--list .text-body-small'
+        ]);
+
+        // bio line (short headline)
+        const bioLine = pickText([
+            '.pv-text-details__left-panel .text-body-medium.break-words',
+            '.pv-top-card--list .text-body-small.inline.t-black--light',
+            '.text-body-medium'
+        ]);
+
+        // build object
+        const profile = {
+            name: name || '',
+            url: location ? window.location.href : window.location.href, // always use page URL
+            about: about || '',
+            bio: bio || '',
+            location: location || '',
+            followerCount: follower || '',
+            connectionCount: connections || '',
+            bioLine: bioLine || ''
+        };
+
+        return profile;
+    } catch (err) {
+        return { error: 'extraction_failed', message: err.message || String(err) };
+    }
+}
